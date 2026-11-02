@@ -1,0 +1,228 @@
+{
+  "name": "AI Intake Triage (starter)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "6c5959e5-a513-4f06-a13d-7952409d1d85",
+      "name": "When clicking Test workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sample incoming messages (stand-ins for real emails or form submissions)\nconst messages = [\n  { from: 'maria@acmeco.com', subject: 'Interested in a demo',\n    body: \"Hi, we're a 40-person logistics company looking to automate our invoicing. Can we set up a call next week?\" },\n  { from: 'dave@randomuser.net', subject: 'Login not working',\n    body: \"I can't log into my account since this morning. It says my password is invalid but I didn't change it.\" },\n  { from: 'billing@vendorco.com', subject: 'Invoice #4471 attached',\n    body: 'Please find attached invoice #4471 for services rendered in October. Payment due in 30 days.' },\n  { from: 'promo@cheapdeals.biz', subject: 'YOU WON!!! Claim your prize',\n    body: 'Congratulations!!! Click here to claim your free gift card now!!! Limited time offer!!!' }\n];\n\nfunction classify(m) {\n  const text = (m.subject + ' ' + m.body).toLowerCase();\n  if (/won|congratulations|free gift|claim your prize|click here/.test(text)) return 'spam';\n  if (/invoice|payment due|amount due|billing/.test(text)) return 'invoice';\n  if (/can.?t log|cannot log|not working|error|issue|broken|password|bug/.test(text)) return 'support';\n  if (/demo|pricing|interested|quote|call|automate|looking to/.test(text)) return 'sales lead';\n  return 'other';\n}\n\nfunction summarize(m) {\n  const first = m.body.split(/[.!?]/)[0].trim();\n  return first.length ? first : m.subject;\n}\n\nreturn messages.map(m => ({\n  json: {\n    from: m.from,\n    subject: m.subject,\n    body: m.body,\n    category: classify(m),\n    summary: summarize(m),\n    received_at: new Date().toISOString()\n  }\n}));"
+      },
+      "id": "7e2782c0-fba0-40f0-b7c2-22ac5e491e47",
+      "name": "Classify & Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-opus-5-5",
+          "mode": "list",
+          "cachedResultName": "claude-opus-5-5"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are an intake assistant for a small business. Read this incoming email and classify it.\n\nFrom: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}\n\nReply with ONLY valid JSON, no other text, in this exact format:\n{\"category\": \"sales lead | support | invoice | spam | other\", \"priority\": \"high | medium | low\", \"summary\": \"one sentence\", \"suggested_reply\": \"a short, polite first reply, or empty if spam\"}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        496,
+        0
+      ],
+      "id": "72a0e28d-b14e-4fe6-8639-61ca33c1da95",
+      "name": "Message a model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "FHW1TqVrWi0LUGlo",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find Claude's JSON reply anywhere in the item, whatever shape it comes back in\nfunction findReply(o) {\n  if (typeof o === 'string' && o.includes('\"category\"')) return o;\n  if (o && typeof o === 'object') {\n    for (const v of Object.values(o)) {\n      const r = findReply(v);\n      if (r) return r;\n    }\n  }\n  return null;\n}\n\nconst originals = $('Classify & Summarize').all();\n\nreturn $input.all().map((item, i) => {\n  const text = findReply(item.json) || '';\n  let ai;\n  try {\n    ai = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n  } catch (e) {\n    ai = { category: 'other', priority: 'medium', summary: '(could not read AI reply)', suggested_reply: '' };\n  }\n  const orig = originals[i].json;\n  return {\n    json: {\n      received_at: orig.received_at,\n      from: orig.from,\n      subject: orig.subject,\n      category: ai.category,\n      priority: ai.priority,\n      summary: ai.summary,\n      suggested_reply: ai.suggested_reply,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        0
+      ],
+      "id": "552c0728-4943-432b-94a9-a0e9c71fae05",
+      "name": "Parse AI Reply"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "w93ASFCLlYzcHKAg",
+          "mode": "list",
+          "cachedResultName": "intake_triage"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "received_at",
+              "displayName": "received_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "from",
+              "displayName": "from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "suggested_reply",
+              "displayName": "suggested_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1088,
+        0
+      ],
+      "id": "342a7008-1d1c-4317-8b65-4fbeae13c7f6",
+      "name": "Save to Table"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking Test workflow": {
+      "main": [
+        [
+          {
+            "node": "Classify & Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify & Summarize": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Reply": {
+      "main": [
+        [
+          {
+            "node": "Save to Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
