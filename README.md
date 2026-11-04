@@ -1,54 +1,78 @@
 # AI Intake Triage (n8n + Claude)
 
-An n8n workflow that reads incoming messages, has Claude classify and prioritize each one, drafts a first reply, and saves the results to a table.
+n8n workflows that watch a Gmail inbox, have Claude classify and prioritize each email, alert the team in Slack, and send a reply only after a person approves it in Slack.
 
-It's a starter for the "too many emails, not enough time" problem small businesses have: sales leads, support requests, invoices and spam all land in the same inbox, and someone has to sort them by hand.
+They tackle the "too many emails, not enough time" problem small businesses have: sales leads, support requests, invoices and spam all land in the same inbox, and someone has to sort them by hand.
 
-## What it does
+The repo has two versions:
 
-| Step | Node | What happens |
+| Version | Files | What it shows |
 |---|---|---|
-| 1 | **When clicking Test workflow** | Manual trigger, so the demo can be run on demand |
-| 2 | **Classify & Summarize** (Code) | Supplies four sample emails: a sales lead, a support request, an invoice and spam |
-| 3 | **Message a model** (Anthropic) | Sends each email to Claude and asks for JSON only: `category`, `priority`, `summary`, `suggested_reply` |
-| 4 | **Parse AI Reply** (Code) | Finds Claude's JSON in the response, parses it (falls back to `other` if it can't) and merges it with the original email fields |
-| 5 | **Save to Table** (Data table) | Inserts one row per email into an n8n Data table named `intake_triage` |
+| **Production** | `workflow/intake-triage-*.json` (3 workflows) | Gmail trigger, routing, Slack alerts, human approval, sub-workflow, error handling |
+| **Starter** | `workflow/ai-intake-triage.json` | The core idea with four sample emails and a manual trigger |
 
-### Result
+## Production version
 
-All four sample emails come back correctly categorized, with a priority, a one-sentence summary and a draft reply (spam gets no reply).
+```
+New Email (Gmail, every minute)
+  → Prep Email → Classify with Claude → Parse AI Reply
+      ├→ Save to Table (every email)
+      └→ Route
+           ├ Spam           → Mark as read (no alert)
+           ├ High priority  → Slack alert in #intake-alerts
+           └ Needs reply    → Approve & Send Reply sub-workflow (one run per email)
+                                → Slack message with Send reply / Don't send buttons
+                                → Approved? → Gmail reply in the same thread → mark read
 
-| from | category | priority |
-|---|---|---|
-| maria@acmeco.com | sales lead | high |
-| dave@randomuser.net | support | high |
-| billing@vendorco.com | invoice | medium |
-| promo@cheapdeals.biz | spam | low |
+Any failure → Error Alerts workflow → Slack message with the workflow, step and error
+```
 
-<!-- Screenshots: add screenshots/workflow.png and screenshots/results-table.png, then uncomment
+### Design choices
+
+- **A person approves every reply.** Claude drafts the reply, but nothing goes out until someone clicks **Send reply** in Slack. Requests expire after 24 hours without sending anything.
+- **One approval run per email.** Slack's "send and wait" step handles one item per run, so a sub-workflow runs once for each email. Several emails arriving in the same minute each get their own approval.
+- **Doesn't fail silently.** The Claude step retries up to 3 times, and an error workflow posts any failure to Slack.
+- **Untrusted input stays data.** The email body is wrapped in markers that Claude is told to treat as data, not instructions. The parser also forces Claude's answer into the allowed categories and priorities.
+- **Cost-aware.** It uses Claude Haiku, which is fast and cheap for classification.
+
+### Test results
+
+Real emails sent to a demo inbox:
+
+| Email | Category | Priority | Result |
+|---|---|---|---|
+| Need a quote for automation work | sales lead | high | Slack alert. Reply approved and sent in the same thread |
+| Can't reset my password | support | high | Slack alert and draft reply for approval |
+| Question about my invoice | invoice | high | Slack alert. Reply declined, nothing sent |
+| CONGRATULATIONS you won a $500 gift card!!! | spam | low | Marked as read, no alert |
+
+<!-- Screenshots: add screenshots/*.png, then uncomment
 ![Workflow](screenshots/workflow.png)
+![Slack approval](screenshots/slack-approval.png)
 ![Results table](screenshots/results-table.png)
 -->
 
-## Run it yourself
+### Run it yourself
 
-1. Start n8n (tested on n8n 2.45.7): `npx n8n`, then open http://localhost:5678.
-2. Create a Data table named `intake_triage` with these string columns: `received_at`, `from`, `subject`, `category`, `priority`, `summary`, `suggested_reply`.
-3. Import `workflow/ai-intake-triage.json` (Workflows → Import from File).
-4. Open **Message a model** and select or create an Anthropic credential with your own API key.
-5. Open **Save to Table** and select your `intake_triage` table.
-6. Click **Test workflow**.
+You need n8n (tested on 2.45.7), an Anthropic API key, a Gmail account with a Google Cloud OAuth client, and a Slack workspace with a bot (scopes `chat:write`, `chat:write.public`, `channels:read`).
 
-No API keys or credentials are stored in this repo. The workflow only refers to a credential by name.
+1. Start n8n with `npx n8n` and open http://localhost:5678.
+2. Create credentials for **Anthropic**, **Gmail OAuth2** and **Slack API**. For the Gmail OAuth client, the redirect URI is `http://localhost:5678/rest/oauth2-credential/callback`.
+3. Create a Data table named `intake_triage` with these string columns: `received_at`, `from`, `subject`, `category`, `priority`, `summary`, `suggested_reply`.
+4. Create a public Slack channel named `#intake-alerts`.
+5. Import the workflows in this order: `intake-triage-error-alerts.json`, `intake-triage-approve-reply.json`, then `intake-triage-gmail-slack.json`. Pick your credentials in each node.
+6. If n8n gave the workflows new IDs on import, point **Request Approval (per email)** at the Approve & Send Reply workflow. Then set the **Error workflow** under Settings in the main workflow and the sub-workflow.
+7. Publish the error and approval workflows first, then the main one.
 
-## Notes
+No API keys or tokens are stored in this repo. Each workflow only refers to its credentials by name.
 
-- The model is set to `claude-opus-5-5`. For high-volume triage, a smaller model such as Claude Haiku is much cheaper and is usually accurate enough.
-- The parser handles responses that include a thinking block alongside the text.
+## Starter version
+
+`workflow/ai-intake-triage.json` runs four sample emails through Claude on a manual trigger and saves the results to the same table. It's the simplest way to see the classification step on its own.
 
 ## Ideas for extending it
 
-- Replace the sample data with a Gmail, Outlook or webhook trigger
-- Send a Slack alert for high-priority messages
+- Add a webhook or Outlook trigger next to Gmail
+- Route each category to its own follow-up flow, such as creating a CRM lead or opening a support ticket
+- Give the approval message an "Edit reply" option that uses a Slack form
 - Write to Google Sheets instead of an n8n Data table
-- Route each category to a different follow-up flow

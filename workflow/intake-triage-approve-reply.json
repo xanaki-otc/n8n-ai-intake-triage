@@ -1,0 +1,196 @@
+{
+  "id": "IntkTriageAprv01",
+  "name": "Intake Triage - Approve & Send Reply",
+  "nodes": [
+    {
+      "id": "2cc24bdd-5c8e-4a79-9dbd-870d63a119c4",
+      "name": "From Triage Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "11b06f98-4d40-4aa6-92aa-21cae1a5db71",
+      "name": "Ask to Approve Reply",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        240,
+        0
+      ],
+      "webhookId": "e9f5ccf5-86e5-4332-91b4-793fa5fc7ce8",
+      "parameters": {
+        "operation": "sendAndWait",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#intake-alerts"
+        },
+        "message": "=*Draft reply to {{ $json.from }}* ({{ $json.category }}, {{ $json.priority }} priority)\n*Subject:* {{ $json.subject }}\n*Summary:* {{ $json.summary }}\n\n*Suggested reply:*\n{{ $json.suggested_reply }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "Send reply",
+            "disapproveLabel": "Don't send"
+          }
+        },
+        "options": {
+          "appendAttribution": false,
+          "limitWaitTime": {
+            "values": {
+              "limitType": "afterTimeInterval",
+              "resumeAmount": 24,
+              "resumeUnit": "hours"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "id": "ff554e65-36f3-4cda-a2b6-c900f7fd76fb",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7170052e-23bf-4332-96fb-581b7b886b1a",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d295d263-e184-4444-93a4-ebe472b654f1",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        -20
+      ],
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('From Triage Workflow').item.json.message_id }}",
+        "emailType": "text",
+        "message": "={{ $('From Triage Workflow').item.json.suggested_reply }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "29517f8b-919e-42b0-98cb-1b54a8d3407d",
+      "name": "Mark Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        960,
+        -20
+      ],
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('From Triage Workflow').item.json.message_id }}"
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "From Triage Workflow": {
+      "main": [
+        [
+          {
+            "node": "Ask to Approve Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask to Approve Reply": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Send Reply": {
+      "main": [
+        [
+          {
+            "node": "Mark Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "IntkTriageErr001"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
