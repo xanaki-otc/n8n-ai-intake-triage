@@ -76,3 +76,7 @@ No API keys or tokens are stored in this repo. Each workflow only refers to its 
 - Route each category to its own follow-up flow, such as creating a CRM lead or opening a support ticket
 - Give the approval message an "Edit reply" option that uses a Slack form
 - Write to Google Sheets instead of an n8n Data table
+
+## License
+
+© 2026 John Pecillo. All rights reserved. Shared for portfolio review, not licensed for reuse. See [LICENSE](LICENSE).
